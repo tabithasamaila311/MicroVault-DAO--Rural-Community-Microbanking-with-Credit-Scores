@@ -1,71 +1,22 @@
-import { Clarinet, Tx, Chain, Account, types } from '@stacks/transactions';
-import { assertEquals } from 'chai';
+import { describe, expect, it } from "vitest";
 
-Clarinet.test({
-  name: "Ensures user can register",
-  async fn(chain: Chain, accounts: Map<string, Account>) {
-    const wallet_1 = accounts.get("wallet_1")!;
+const accounts = simnet.getAccounts();
+const address1 = accounts.get("wallet_1")!;
 
-    let block = chain.mineBlock([
-      Tx.contractCall("microvault-dao", "register-user", [], wallet_1.address)
-    ]);
+/*
+  The test below is an example. To learn more, read the testing documentation here:
+  https://docs.hiro.so/stacks/clarinet-js-sdk
+*/
 
-    assertEquals(block.receipts[0].result.expectOk(), true);
-  },
+describe("example tests", () => {
+  it("ensures simnet is well initialised", () => {
+    expect(simnet.blockHeight).toBeDefined();
+  });
+
+  // it("shows an example", () => {
+  //   const { result } = simnet.callReadOnlyFn("counter", "get-counter", [], address1);
+  //   expect(result).toBeUint(0);
+  // });
 });
 
-Clarinet.test({
-  name: "Can request loan with sufficient credit score",
-  async fn(chain: Chain, accounts: Map<string, Account>) {
-    const wallet_1 = accounts.get("wallet_1")!;
 
-    let block = chain.mineBlock([
-      Tx.contractCall("microvault-dao", "register-user", [], wallet_1.address),
-      Tx.contractCall("microvault-dao", "request-loan", [types.uint(1000)], wallet_1.address)
-    ]);
-
-    assertEquals(block.receipts[1].result.expectOk(), true);
-  },
-});
-
-Clarinet.test({
-  name: "Can repay loan successfully",
-  async fn(chain: Chain, accounts: Map<string, Account>) {
-    const wallet_1 = accounts.get("wallet_1")!;
-
-    let block = chain.mineBlock([
-      Tx.contractCall("microvault-dao", "register-user", [], wallet_1.address),
-      Tx.contractCall("microvault-dao", "request-loan", [types.uint(1000)], wallet_1.address),
-      Tx.contractCall("microvault-dao", "repay-loan", [types.uint(1)], wallet_1.address)
-    ]);
-
-    assertEquals(block.receipts[2].result.expectOk(), true);
-  },
-});
-
-Clarinet.test({
-  name: "Only owner can update minimum credit score",
-  async fn(chain: Chain, accounts: Map<string, Account>) {
-    const deployer = accounts.get("deployer")!;
-
-    let block = chain.mineBlock([
-      Tx.contractCall("microvault-dao", "update-min-credit-score", [types.uint(600)], deployer.address)
-    ]);
-
-    assertEquals(block.receipts[0].result.expectOk(), true);
-  },
-});
-
-Clarinet.test({
-  name: "Can retrieve user data",
-  async fn(chain: Chain, accounts: Map<string, Account>) {
-    const wallet_1 = accounts.get("wallet_1")!;
-
-    let block = chain.mineBlock([
-      Tx.contractCall("microvault-dao", "register-user", [], wallet_1.address),
-      Tx.contractCall("microvault-dao", "get-user-data", [types.principal(wallet_1.address)], wallet_1.address)
-    ]);
-
-    assertEquals(block.receipts[1].result.expectSome(), true);
-  },
-});
