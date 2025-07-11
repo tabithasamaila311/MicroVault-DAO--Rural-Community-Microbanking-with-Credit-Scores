@@ -1,0 +1,23 @@
+[project]
+name = 'MicroVault-DAO--Rural-Community-Microbanking-with-Credit-Scores'
+description = ''
+authors = []
+telemetry = true
+cache_dir = '.\.cache'
+requirements = []
+[contracts.MicroVault-DAO--Rural-Community-Microbanking-with-Credit-Scores]
+path = 'contracts/MicroVault-DAO--Rural-Community-Microbanking-with-Credit-Scores.clar'
+clarity_version = 3
+epoch = 3.1
+[repl.analysis]
+passes = ['check_checker']
+
+[repl.analysis.check_checker]
+strict = false
+trusted_sender = false
+trusted_caller = false
+callee_filter = false
+
+[repl.remote_data]
+enabled = false
+api_url = 'https://api.hiro.so'
