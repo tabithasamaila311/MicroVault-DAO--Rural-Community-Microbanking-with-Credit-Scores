@@ -9,6 +9,11 @@
 (define-constant base-interest-rate u10)
 (define-constant max-interest-rate u25)
 (define-constant min-interest-rate u5)
+(define-constant extension-fee-rate u15)
+(define-constant max-extensions u3)
+(define-constant extension-blocks u720)
+(define-constant err-max-extensions (err u105))
+(define-constant err-extension-not-allowed (err u106))
 
 ;; Data Variables
 (define-data-var min-credit-score uint u500)
@@ -37,6 +42,7 @@
         insured: bool,
         interest-rate: uint,
         total-amount-due: uint,
+        extensions-used: uint,
     }
 )
 
@@ -46,6 +52,16 @@
         amount: uint,
         rewards-earned: uint,
         last-claim-height: uint,
+    }
+)
+
+(define-map loan-extensions
+    uint
+    {
+        loan-id: uint,
+        extensions-count: uint,
+        total-extension-fees: uint,
+        last-extension-height: uint,
     }
 )
 
@@ -124,6 +140,7 @@
             insured: false,
             interest-rate: interest-rate,
             total-amount-due: total-due,
+            extensions-used: u0,
         }))
     )
 )
@@ -166,6 +183,46 @@
 
 (define-read-only (get-loan-data (loan-id uint))
     (map-get? loans loan-id)
+)
+
+(define-public (extend-loan (loan-id uint))
+    (let (
+            (loan (unwrap! (map-get? loans loan-id) err-not-found))
+            (extension-data (default-to {
+                loan-id: u0,
+                extensions-count: u0,
+                total-extension-fees: u0,
+                last-extension-height: u0,
+            }
+                (map-get? loan-extensions loan-id)
+            ))
+            (current-extensions (get extensions-used loan))
+            (extension-fee (/ (* (get total-amount-due loan) extension-fee-rate) u100))
+        )
+        (asserts! (is-eq (get borrower loan) tx-sender) err-owner-only)
+        (asserts! (is-eq (get status loan) "ACTIVE") err-invalid-amount)
+        (asserts! (< current-extensions max-extensions) err-max-extensions)
+        (asserts! (> burn-block-height (- (get due-height loan) u144))
+            err-extension-not-allowed
+        )
+
+        (map-set loans loan-id
+            (merge loan {
+                due-height: (+ (get due-height loan) extension-blocks),
+                extensions-used: (+ current-extensions u1),
+                total-amount-due: (+ (get total-amount-due loan) extension-fee),
+            })
+        )
+
+        (map-set loan-extensions loan-id {
+            loan-id: loan-id,
+            extensions-count: (+ (get extensions-count extension-data) u1),
+            total-extension-fees: (+ (get total-extension-fees extension-data) extension-fee),
+            last-extension-height: burn-block-height,
+        })
+
+        (ok extension-fee)
+    )
 )
 
 (define-public (contribute-to-insurance (amount uint))
@@ -291,6 +348,39 @@
             late-payments: u0,
             payment-ratio: u0,
             current-interest-rate: base-interest-rate,
+        }
+    )
+)
+
+(define-read-only (get-extension-data (loan-id uint))
+    (map-get? loan-extensions loan-id)
+)
+
+(define-read-only (calculate-extension-fee (loan-id uint))
+    (match (map-get? loans loan-id)
+        loan (some (/ (* (get total-amount-due loan) extension-fee-rate) u100))
+        none
+    )
+)
+
+(define-read-only (can-extend-loan (loan-id uint))
+    (match (map-get? loans loan-id)
+        loan
+        {
+            is-active: (is-eq (get status loan) "ACTIVE"),
+            extensions-remaining: (- max-extensions (get extensions-used loan)),
+            can-extend: (and
+                (is-eq (get status loan) "ACTIVE")
+                (< (get extensions-used loan) max-extensions)
+                (> burn-block-height (- (get due-height loan) u144))
+            ),
+            extension-fee: (/ (* (get total-amount-due loan) extension-fee-rate) u100),
+        }
+        {
+            is-active: false,
+            extensions-remaining: u0,
+            can-extend: false,
+            extension-fee: u0,
         }
     )
 )
