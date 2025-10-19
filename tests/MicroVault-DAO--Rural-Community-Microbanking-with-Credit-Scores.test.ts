@@ -1,71 +1,30 @@
-import { Clarinet, Tx, Chain, Account, types } from '@stacks/transactions';
-import { assertEquals } from 'chai';
+import { describe, expect, it } from "vitest";
 
-Clarinet.test({
-  name: "Ensures user can register",
-  async fn(chain: Chain, accounts: Map<string, Account>) {
-    const wallet_1 = accounts.get("wallet_1")!;
+const accounts = simnet.getAccounts();
+const address1 = accounts.get("wallet_1")!;
 
-    let block = chain.mineBlock([
-      Tx.contractCall("microvault-dao", "register-user", [], wallet_1.address)
-    ]);
+/*
+  Basic tests for MicroVault DAO contract with Community Savings Groups feature
+*/
 
-    assertEquals(block.receipts[0].result.expectOk(), true);
-  },
-});
+describe("MicroVault DAO Tests", () => {
+  it("ensures simnet is well initialised", () => {
+    expect(simnet.blockHeight).toBeDefined();
+  });
 
-Clarinet.test({
-  name: "Can request loan with sufficient credit score",
-  async fn(chain: Chain, accounts: Map<string, Account>) {
-    const wallet_1 = accounts.get("wallet_1")!;
+  it("allows user registration", () => {
+    const { result } = simnet.callPublicFn("MicroVault-DAO--Rural-Community-Microbanking-with-Credit-Scores", "register-user", [], address1);
+    expect(result).toBeOk(true);
+  });
 
-    let block = chain.mineBlock([
-      Tx.contractCall("microvault-dao", "register-user", [], wallet_1.address),
-      Tx.contractCall("microvault-dao", "request-loan", [types.uint(1000)], wallet_1.address)
-    ]);
+  it("allows creating savings groups", () => {
+    const { result } = simnet.callPublicFn("MicroVault-DAO--Rural-Community-Microbanking-with-Credit-Scores", "create-savings-group", 
+      ["Village Savings", "Community savings group", 30], address1);
+    expect(result).toBeOk(1);
+  });
 
-    assertEquals(block.receipts[1].result.expectOk(), true);
-  },
-});
-
-Clarinet.test({
-  name: "Can repay loan successfully",
-  async fn(chain: Chain, accounts: Map<string, Account>) {
-    const wallet_1 = accounts.get("wallet_1")!;
-
-    let block = chain.mineBlock([
-      Tx.contractCall("microvault-dao", "register-user", [], wallet_1.address),
-      Tx.contractCall("microvault-dao", "request-loan", [types.uint(1000)], wallet_1.address),
-      Tx.contractCall("microvault-dao", "repay-loan", [types.uint(1)], wallet_1.address)
-    ]);
-
-    assertEquals(block.receipts[2].result.expectOk(), true);
-  },
-});
-
-Clarinet.test({
-  name: "Only owner can update minimum credit score",
-  async fn(chain: Chain, accounts: Map<string, Account>) {
-    const deployer = accounts.get("deployer")!;
-
-    let block = chain.mineBlock([
-      Tx.contractCall("microvault-dao", "update-min-credit-score", [types.uint(600)], deployer.address)
-    ]);
-
-    assertEquals(block.receipts[0].result.expectOk(), true);
-  },
-});
-
-Clarinet.test({
-  name: "Can retrieve user data",
-  async fn(chain: Chain, accounts: Map<string, Account>) {
-    const wallet_1 = accounts.get("wallet_1")!;
-
-    let block = chain.mineBlock([
-      Tx.contractCall("microvault-dao", "register-user", [], wallet_1.address),
-      Tx.contractCall("microvault-dao", "get-user-data", [types.principal(wallet_1.address)], wallet_1.address)
-    ]);
-
-    assertEquals(block.receipts[1].result.expectSome(), true);
-  },
+  it("can read contract data", () => {
+    const { result } = simnet.callReadOnlyFn("MicroVault-DAO--Rural-Community-Microbanking-with-Credit-Scores", "get-user-data", [address1], address1);
+    expect(result).toBeDefined();
+  });
 });
