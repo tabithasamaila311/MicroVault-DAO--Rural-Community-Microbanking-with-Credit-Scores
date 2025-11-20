@@ -12,6 +12,7 @@
 (define-constant err-goal-not-set (err u111))
 (define-constant err-unauthorized-action (err u112))
 (define-constant err-already-claimed (err u113))
+(define-constant err-insufficient-pool (err u114))
 (define-constant min-group-size u3)
 (define-constant max-group-size u20)
 (define-constant min-contribution u100)
@@ -65,7 +66,10 @@
 )
 
 (define-map group-members
-    { group-id: uint, member: principal }
+    {
+        group-id: uint,
+        member: principal,
+    }
     {
         total-contributed: uint,
         contributions-count: uint,
@@ -95,6 +99,15 @@
         failed-contributions: uint,
         average-score: uint,
         last-updated: uint,
+    }
+)
+
+(define-map pool-contributors
+    principal
+    {
+        total-funded: uint,
+        total-withdrawn: uint,
+        last-fund-height: uint,
     }
 )
 
@@ -161,13 +174,12 @@
 )
 
 ;; Community Savings Groups Functions
-(define-public (create-savings-group 
-    (name (string-ascii 50))
-    (description (string-ascii 200))
-    (contribution-frequency uint))
-    (let (
-            (group-id (var-get next-group-id))
-        )
+(define-public (create-savings-group
+        (name (string-ascii 50))
+        (description (string-ascii 200))
+        (contribution-frequency uint)
+    )
+    (let ((group-id (var-get next-group-id)))
         (asserts! (> contribution-frequency u0) err-invalid-amount)
         (map-set savings-groups group-id {
             creator: tx-sender,
@@ -181,7 +193,10 @@
             disbursement-order: (list tx-sender),
             current-disbursement-index: u0,
         })
-        (map-set group-members { group-id: group-id, member: tx-sender } {
+        (map-set group-members {
+            group-id: group-id,
+            member: tx-sender,
+        } {
             total-contributed: u0,
             contributions-count: u0,
             last-contribution-height: u0,
@@ -194,16 +209,28 @@
     )
 )
 
-(define-public (join-group (group-id uint) (initial-contribution uint))
+(define-public (join-group
+        (group-id uint)
+        (initial-contribution uint)
+    )
     (let (
             (group (unwrap! (map-get? savings-groups group-id) err-group-not-found))
-            (member-key { group-id: group-id, member: tx-sender })
+            (member-key {
+                group-id: group-id,
+                member: tx-sender,
+            })
         )
         (asserts! (get is-active group) err-unauthorized-action)
-        (asserts! (< (get member-count group) max-group-size) err-unauthorized-action)
-        (asserts! (>= initial-contribution min-contribution) err-insufficient-contribution)
-        (asserts! (is-none (map-get? group-members member-key)) err-already-member)
-        
+        (asserts! (< (get member-count group) max-group-size)
+            err-unauthorized-action
+        )
+        (asserts! (>= initial-contribution min-contribution)
+            err-insufficient-contribution
+        )
+        (asserts! (is-none (map-get? group-members member-key))
+            err-already-member
+        )
+
         (map-set group-members member-key {
             total-contributed: initial-contribution,
             contributions-count: u1,
@@ -212,29 +239,43 @@
             join-height: burn-block-height,
             reputation-score: u100,
         })
-        
+
         (map-set savings-groups group-id
             (merge group {
                 member-count: (+ (get member-count group) u1),
                 total-contributions: (+ (get total-contributions group) initial-contribution),
-                disbursement-order: (unwrap! (as-max-len? (append (get disbursement-order group) tx-sender) u20) err-unauthorized-action),
+                disbursement-order: (unwrap!
+                    (as-max-len?
+                        (append (get disbursement-order group) tx-sender)
+                        u20
+                    )
+                    err-unauthorized-action
+                ),
             })
         )
-        
-        (var-set total-savings-pool (+ (var-get total-savings-pool) initial-contribution))
+
+        (var-set total-savings-pool
+            (+ (var-get total-savings-pool) initial-contribution)
+        )
         (ok true)
     )
 )
 
-(define-public (make-contribution (group-id uint) (amount uint))
+(define-public (make-contribution
+        (group-id uint)
+        (amount uint)
+    )
     (let (
             (group (unwrap! (map-get? savings-groups group-id) err-group-not-found))
-            (member-key { group-id: group-id, member: tx-sender })
+            (member-key {
+                group-id: group-id,
+                member: tx-sender,
+            })
             (member-data (unwrap! (map-get? group-members member-key) err-not-found))
         )
         (asserts! (get is-active group) err-unauthorized-action)
         (asserts! (>= amount min-contribution) err-insufficient-contribution)
-        
+
         (map-set group-members member-key
             (merge member-data {
                 total-contributed: (+ (get total-contributed member-data) amount),
@@ -246,13 +287,11 @@
                 ),
             })
         )
-        
+
         (map-set savings-groups group-id
-            (merge group {
-                total-contributions: (+ (get total-contributions group) amount),
-            })
+            (merge group { total-contributions: (+ (get total-contributions group) amount) })
         )
-        
+
         (var-set total-savings-pool (+ (var-get total-savings-pool) amount))
         (ok true)
     )
@@ -261,43 +300,54 @@
 (define-public (request-disbursement (group-id uint))
     (let (
             (group (unwrap! (map-get? savings-groups group-id) err-group-not-found))
-            (member-key { group-id: group-id, member: tx-sender })
+            (member-key {
+                group-id: group-id,
+                member: tx-sender,
+            })
             (member-data (unwrap! (map-get? group-members member-key) err-not-found))
             (disbursement-list (get disbursement-order group))
             (current-index (get current-disbursement-index group))
-            (eligible-member (unwrap! (element-at disbursement-list current-index) err-not-eligible-for-disbursement))
+            (eligible-member (unwrap! (element-at disbursement-list current-index)
+                err-not-eligible-for-disbursement
+            ))
             (disbursement-amount (/ (get total-contributions group) (get member-count group)))
         )
         (asserts! (get is-active group) err-unauthorized-action)
-        (asserts! (is-eq tx-sender eligible-member) err-not-eligible-for-disbursement)
-        (asserts! (>= (get member-count group) min-group-size) err-unauthorized-action)
-        (asserts! (is-eq (get disbursement-received member-data) u0) err-already-claimed)
-        
+        (asserts! (is-eq tx-sender eligible-member)
+            err-not-eligible-for-disbursement
+        )
+        (asserts! (>= (get member-count group) min-group-size)
+            err-unauthorized-action
+        )
+        (asserts! (is-eq (get disbursement-received member-data) u0)
+            err-already-claimed
+        )
+
         (map-set group-members member-key
-            (merge member-data {
-                disbursement-received: disbursement-amount,
-            })
+            (merge member-data { disbursement-received: disbursement-amount })
         )
-        
+
         (map-set savings-groups group-id
-            (merge group {
-                current-disbursement-index: (+ current-index u1),
-            })
+            (merge group { current-disbursement-index: (+ current-index u1) })
         )
-        
-        (var-set total-savings-pool (- (var-get total-savings-pool) disbursement-amount))
+
+        (var-set total-savings-pool
+            (- (var-get total-savings-pool) disbursement-amount)
+        )
         (ok disbursement-amount)
     )
 )
 
-(define-public (set-group-goal (group-id uint) (target-amount uint) (deadline uint))
-    (let (
-            (group (unwrap! (map-get? savings-groups group-id) err-group-not-found))
-        )
+(define-public (set-group-goal
+        (group-id uint)
+        (target-amount uint)
+        (deadline uint)
+    )
+    (let ((group (unwrap! (map-get? savings-groups group-id) err-group-not-found)))
         (asserts! (is-eq tx-sender (get creator group)) err-unauthorized-action)
         (asserts! (> target-amount u0) err-invalid-amount)
         (asserts! (> deadline burn-block-height) err-invalid-amount)
-        
+
         (map-set group-goals group-id {
             target-amount: target-amount,
             deadline: deadline,
@@ -315,8 +365,10 @@
             (goal (unwrap! (map-get? group-goals group-id) err-goal-not-set))
         )
         (asserts! (not (get achieved goal)) err-already-claimed)
-        (asserts! (>= (get total-contributions group) (get target-amount goal)) err-insufficient-contribution)
-        
+        (asserts! (>= (get total-contributions group) (get target-amount goal))
+            err-insufficient-contribution
+        )
+
         (map-set group-goals group-id
             (merge goal {
                 achieved: true,
@@ -332,8 +384,14 @@
     (map-get? savings-groups group-id)
 )
 
-(define-read-only (get-group-member-data (group-id uint) (member principal))
-    (map-get? group-members { group-id: group-id, member: member })
+(define-read-only (get-group-member-data
+        (group-id uint)
+        (member principal)
+    )
+    (map-get? group-members {
+        group-id: group-id,
+        member: member,
+    })
 )
 
 (define-read-only (get-group-goal (group-id uint))
@@ -346,8 +404,7 @@
 
 (define-read-only (calculate-group-interest (group-id uint))
     (match (map-get? savings-groups group-id)
-        group
-        (let (
+        group (let (
                 (base-interest (/ (* (get total-contributions group) group-interest-rate) u100))
                 (member-bonus (/ (* (get member-count group) u10) u100))
             )
@@ -359,8 +416,7 @@
 
 (define-read-only (get-next-disbursement-recipient (group-id uint))
     (match (map-get? savings-groups group-id)
-        group
-        (let (
+        group (let (
                 (disbursement-list (get disbursement-order group))
                 (current-index (get current-disbursement-index group))
             )
@@ -375,5 +431,70 @@
     (begin
         (asserts! (is-eq tx-sender contract-owner) err-owner-only)
         (ok (var-set min-credit-score new-score))
+    )
+)
+
+(define-read-only (get-lending-pool)
+    (var-get lending-pool)
+)
+
+(define-read-only (get-pool-contributor (contributor principal))
+    (map-get? pool-contributors contributor)
+)
+
+(define-read-only (get-contributor-available-pool (contributor principal))
+    (match (map-get? pool-contributors contributor)
+        contributor-data (let ((available (- (get total-funded contributor-data)
+                (get total-withdrawn contributor-data)
+            )))
+            (some available)
+        )
+        none
+    )
+)
+
+(define-public (fund-lending-pool (amount uint))
+    (let ((existing (map-get? pool-contributors tx-sender)))
+        (begin
+            (asserts! (> amount u0) err-invalid-amount)
+            (var-set lending-pool (+ (var-get lending-pool) amount))
+            (if (is-some existing)
+                (let ((contributor (unwrap! existing err-not-found)))
+                    (map-set pool-contributors tx-sender {
+                        total-funded: (+ (get total-funded contributor) amount),
+                        total-withdrawn: (get total-withdrawn contributor),
+                        last-fund-height: burn-block-height,
+                    })
+                )
+                (map-set pool-contributors tx-sender {
+                    total-funded: amount,
+                    total-withdrawn: u0,
+                    last-fund-height: burn-block-height,
+                })
+            )
+            (ok (var-get lending-pool))
+        )
+    )
+)
+
+(define-public (withdraw-from-pool (amount uint))
+    (let (
+            (contributor-data (unwrap! (map-get? pool-contributors tx-sender) err-not-found))
+            (available (- (get total-funded contributor-data)
+                (get total-withdrawn contributor-data)
+            ))
+        )
+        (begin
+            (asserts! (> amount u0) err-invalid-amount)
+            (asserts! (>= available amount) err-insufficient-pool)
+            (asserts! (>= (var-get lending-pool) amount) err-insufficient-pool)
+            (map-set pool-contributors tx-sender {
+                total-funded: (get total-funded contributor-data),
+                total-withdrawn: (+ (get total-withdrawn contributor-data) amount),
+                last-fund-height: (get last-fund-height contributor-data),
+            })
+            (var-set lending-pool (- (var-get lending-pool) amount))
+            (ok amount)
+        )
     )
 )
